@@ -36,17 +36,3 @@ def build_atoms(data: dict,
             atoms.info['position_type'] = 'minimum'
         atom_list.append(atoms)
     return atom_list
-
-def build_atoms_iterator(data: list):
-    """
-    This method assumes the data has been validated. This will create ASE atoms to be written.
-    
-    The input needs to be a list of lists that contain the event dictionaries. Each inner list needs to represent all the events for a single
-    mol_id.
-    """
-    data_set=[]
-    for mol_id_list in tqdm(data):
-        for pair in mol_id_list:
-            atoms=build_atoms(pair, energy='energies', forces='gradients', charge='charge', spin='spin')
-            data_set+=atoms
-    return data_set

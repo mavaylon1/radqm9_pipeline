@@ -187,8 +187,16 @@ def bucket_mol_id(data: list):
                 print(mol_id)
         return bucket
 
-def weight():
-    # TODO: Make into funct
+def mol_id_weight_bins(bucket: dict):
+    """
+    This method takes in the output from bucket_mol_id.
+    For each mol_id, calculate the molecule weight based off the atoms. Combine that with that type of atoms used.
+    This weight+type serves as a key for a dict. The values are then the mol_ids that match the key.
+    
+    The intent is create a dict such that we can sample from evenly based on weight. We also want to ensure even
+    representation of atom type across train/val/test, hence why we include the atoms used in the key.
+    """
+
     weight_dict = {}
     for mol_id in tqdm(j):
         an = pyasl.AtomicNo()
@@ -203,11 +211,28 @@ def weight():
 
         except KeyError:
             weight_dict[str(sum(species_num))+'_'+species_sorted] = [mol_id]
+    
+    return weight_dict
 
-def train_val_test_split():
+def train_val_test_split(mol_id_dict: dict,
+                         train_size: int,
+                         val_size: int,
+                         test_size: int):
+    """
+    This method takes in the output from mol_id_weight_bins.
+    This method will sample from each key-value pair from the input dict based on the train_size, val_size, test_size.
+    The method requires a validation set, but the user can combine it with test if they so choose.
+    """
+    # Check the train/val/test add up to 100
+    total_size = train_size+val_size+test_size
+    if total_size != 100:
+        msg = "Make sure the split adds up to 100"
+        raise ValueError(msg)
+    
     train = []
     val = []
     test = []
+    split={}
 
     import random
     random.seed(10)
@@ -215,19 +240,45 @@ def train_val_test_split():
         random.shuffle(weight_dict[strata])
         train_index = round(len(weight_dict[strata])*.6)
         val_index = round(len(weight_dict[strata])*.8)
+        
+        try:
+            split['train'].append(weight_dict[strata][:train_index])
+            split['val'].append(weight_dict[strata][train_index:val_index])
+            split['test'].append(weight_dict[strata][val_index:])
+        except KeyError:
+            split['train'] = weight_dict[strata][:train_index]
+            split['val'] = weight_dict[strata][train_index:val_index]
+            split['test'] = weight_dict[strata][val_index:]
+    
+    return split
 
-        train+=weight_dict[strata][:train_index]
-        val+=weight_dict[strata][train_index:val_index]
-        test+=weight_dict[strata][val_index:]
+def build_atoms_iterator(data: dict):
+    """
+    This method assumes the data has been validated. This will create ASE atoms to be written.
+    
+    The input needs to be a list of lists that contain the event dictionaries. Each inner list needs to represent all the events for a single
+    mol_id.
+    """
+    
+    
+    data_set=[]
+    for mol_id_list in tqdm(data):
+        for pair in mol_id_list:
+            atoms=build_atoms(pair, energy='energies', forces='gradients', charge='charge', spin='spin')
+            data_set+=atoms
+    return data_set
 
-def create_dataset(train_data:list,
-                   val_data: list,
-                   test_data: list,
-                   file_name:str,
-                   path:str):
+def create_dataset(data: dict
+                   file_name: str,
+                   path: str):
     """
-    This method will handle the I/O for writing the data to xyz files to the path provided.
+    This method will handle the I/O for writing the data to xyz files to the path provided, making no assumptions 
+    about the format of the individual data, i.e., the data may or may not be ASE atoms.
     """
+    train_data = data['train']
+    val_data = data['val']
+    test_data = data['test']
+    
     train_file = os.path.join(path,file_name+'_train.xyz')
     ase.io.write(train_file, train_data,format="extxyz")
      

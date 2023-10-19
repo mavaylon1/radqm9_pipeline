@@ -2,6 +2,8 @@ from monty.serialization import loadfn
 from tqdm import tqdm
 import glob
 
+from radqm9_pipeline.ase_data.data_to_atoms import build_atoms
+
 def merge_data(folder: str):
     """
     Load and merge the data into a single list from a folder of json files.
@@ -187,7 +189,7 @@ def bucket_mol_id(data: list):
                 print(mol_id)
         return bucket
 
-def mol_id_weight_bins(bucket: dict):
+def __mol_id_weight_bins(bucket: dict):
     """
     This method takes in the output from bucket_mol_id.
     For each mol_id, calculate the molecule weight based off the atoms. Combine that with that type of atoms used.
@@ -214,7 +216,7 @@ def mol_id_weight_bins(bucket: dict):
     
     return weight_dict
 
-def train_val_test_split(mol_id_dict: dict,
+def train_val_test_split(bucket: dict,
                          train_size: int,
                          val_size: int,
                          test_size: int):
@@ -223,15 +225,15 @@ def train_val_test_split(mol_id_dict: dict,
     This method will sample from each key-value pair from the input dict based on the train_size, val_size, test_size.
     The method requires a validation set, but the user can combine it with test if they so choose.
     """
+    
+    weight_dict = __mol_id_weight_bins(bucket)
+    
     # Check the train/val/test add up to 100
     total_size = train_size+val_size+test_size
     if total_size != 100:
         msg = "Make sure the split adds up to 100"
         raise ValueError(msg)
     
-    train = []
-    val = []
-    test = []
     split={}
 
     import random
@@ -250,9 +252,17 @@ def train_val_test_split(mol_id_dict: dict,
             split['val'] = weight_dict[strata][train_index:val_index]
             split['test'] = weight_dict[strata][val_index:]
     
+    train_data = [bucket[i] for i in split['train']
+    val_data = [bucket[i] for i in split['val']
+    test_data = [bucket[i] for i in split['test']
+                 
+    split['train']=train_data
+    split['val']=val_data
+    split['test']=test_data
+    
     return split
 
-def build_atoms_iterator(data: dict):
+def build_atoms_iterator(data: list):
     """
     This method assumes the data has been validated. This will create ASE atoms to be written.
     
@@ -267,6 +277,15 @@ def build_atoms_iterator(data: dict):
             atoms=build_atoms(pair, energy='energies', forces='gradients', charge='charge', spin='spin')
             data_set+=atoms
     return data_set
+
+def build_manager(data: dict):
+    """
+    Manage building atoms for train/val/test splits
+    """
+    build = {}
+    for split in data:
+        build[split] = build_atoms_iterator(data[split])
+    return build
 
 def create_dataset(data: dict
                    file_name: str,

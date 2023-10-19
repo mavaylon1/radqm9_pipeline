@@ -1,0 +1,9 @@
+Metadata-Version: 2.1
+Name: radqm9-pipeline
+Version: 0.1.0
+Summary: ...
+Home-page: 
+Author: Matthew Avaylon
+Author-email: mavaylon@lbl.gov
+Platform: Mac OS and Linux
+Requires-Python: >=3.9

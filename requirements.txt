@@ -1,0 +1,6 @@
+tqdm
+glob
+ase
+numpy
+monty
+PyAstronomy

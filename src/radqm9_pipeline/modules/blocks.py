@@ -1,8 +1,16 @@
 from monty.serialization import loadfn
 from tqdm import tqdm
+import collections
+from PyAstronomy import pyasl
 import glob
 
 from radqm9_pipeline.ase_data.data_to_atoms import build_atoms
+from radqm9_pipeline.elements import read_elements
+
+import os
+CUR_DIR = os.path.dirname(os.path.realpath(__file__))
+
+elements_dict = read_elements(os.path.join(CUR_DIR, 'elements.pkl'))
 
 def merge_data(folder: str):
     """
@@ -200,9 +208,9 @@ def __mol_id_weight_bins(bucket: dict):
     """
 
     weight_dict = {}
-    for mol_id in tqdm(j):
+    for mol_id in tqdm(bucket):
         an = pyasl.AtomicNo()
-        species = j[mol_id][0]['species']
+        species = bucket[mol_id][0]['species']
         species_num = []
         species_sorted = ''.join(sorted(set(species)))
         for element in species:
@@ -217,22 +225,18 @@ def __mol_id_weight_bins(bucket: dict):
     return weight_dict
 
 def train_val_test_split(bucket: dict,
-                         train_size: int,
-                         val_size: int,
-                         test_size: int):
+                         train_size: float,
+                         val_size: float):
     """
     This method takes in the output from mol_id_weight_bins.
-    This method will sample from each key-value pair from the input dict based on the train_size, val_size, test_size.
+    This method will sample from each key-value pair from the input dict based on the train_size, val_size.
     The method requires a validation set, but the user can combine it with test if they so choose.
     """
     
     weight_dict = __mol_id_weight_bins(bucket)
     
-    # Check the train/val/test add up to 100
-    total_size = train_size+val_size+test_size
-    if total_size != 100:
-        msg = "Make sure the split adds up to 100"
-        raise ValueError(msg)
+    train_marker = train_size
+    val_marker = train_size + val_size
     
     split={}
 
@@ -240,21 +244,21 @@ def train_val_test_split(bucket: dict,
     random.seed(10)
     for strata in tqdm(weight_dict):
         random.shuffle(weight_dict[strata])
-        train_index = round(len(weight_dict[strata])*.6)
-        val_index = round(len(weight_dict[strata])*.8)
+        train_index = round(len(weight_dict[strata])*train_marker)
+        val_index = round(len(weight_dict[strata])*val_marker)
         
         try:
-            split['train'].append(weight_dict[strata][:train_index])
-            split['val'].append(weight_dict[strata][train_index:val_index])
-            split['test'].append(weight_dict[strata][val_index:])
+            split['train']+=(weight_dict[strata][:train_index])
+            split['val']+=(weight_dict[strata][train_index:val_index])
+            split['test']+=(weight_dict[strata][val_index:])
         except KeyError:
             split['train'] = weight_dict[strata][:train_index]
             split['val'] = weight_dict[strata][train_index:val_index]
             split['test'] = weight_dict[strata][val_index:]
     
-    train_data = [bucket[i] for i in split['train']
-    val_data = [bucket[i] for i in split['val']
-    test_data = [bucket[i] for i in split['test']
+    train_data = [bucket[i] for i in split['train']]
+    val_data = [bucket[i] for i in split['val']]
+    test_data = [bucket[i] for i in split['test']]
                  
     split['train']=train_data
     split['val']=val_data
@@ -287,7 +291,7 @@ def build_manager(data: dict):
         build[split] = build_atoms_iterator(data[split])
     return build
 
-def create_dataset(data: dict
+def create_dataset(data: dict,
                    file_name: str,
                    path: str):
     """

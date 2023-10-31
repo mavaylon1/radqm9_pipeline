@@ -11,6 +11,8 @@ src/radqm9_pipeline/ase_data/__init__.py
 src/radqm9_pipeline/ase_data/data_to_atoms.py
 src/radqm9_pipeline/elements/__init__.py
 src/radqm9_pipeline/elements/read_elements.py
+src/radqm9_pipeline/modules/__init__.py
+src/radqm9_pipeline/modules/blocks.py
 src/radqm9_pipeline/validators/__init__.py
 src/radqm9_pipeline/validators/test.py
 src/radqm9_pipeline/validators/validators.py

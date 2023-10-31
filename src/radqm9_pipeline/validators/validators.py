@@ -1,5 +1,5 @@
 import collections
-from radqm9_pipeline.elements.read_elements import read_elements
+from radqm9_pipeline.elements import read_elements
 
 def charge_spin_validator(bucket: dict):
     """

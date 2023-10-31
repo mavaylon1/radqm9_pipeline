@@ -7,7 +7,7 @@ if '' not in sys.path:
     sys.path.insert(0, '')
 
 setup(
-      name="radqm9_pipeline",
+      name="radqm9pipeline",
       version="0.1.0",
       description="...",
       author="Matthew Avaylon",

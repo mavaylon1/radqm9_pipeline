@@ -2,7 +2,8 @@ from monty.serialization import loadfn
 from tqdm import tqdm
 import collections
 from PyAstronomy import pyasl
-import glob
+from glob import glob
+import numpy as np
 
 from radqm9_pipeline.ase_data.data_to_atoms import build_atoms
 from radqm9_pipeline.elements import read_elements
@@ -77,6 +78,15 @@ def bucket_mol_id(data: list):
                 mulliken = [pair['mulliken'][0], pair['mulliken'][reference_index], pair['mulliken'][-1]]
                 resp = [pair['resp'][0], pair['resp'][reference_index], pair['resp'][-1]]
                 
+                # add weight tag
+                species = pair['species']
+                species_num = []
+                species_sorted = ''.join(sorted(set(species)))
+                for element in species:
+                    species_num.append(elements_dict[element])
+                    
+                pair['weight_tag'] = round(sum(species_num))
+                
                 pair['geometries'] = geometries
                 pair['energies'] = energies
                 pair['gradients'] = grads
@@ -102,6 +112,16 @@ def bucket_mol_id(data: list):
                         event['gradients'] = grads
                         event['mulliken'] = mulliken
                         event['resp'] = resp
+                        
+                        # add weight tag
+                        species = event['species']
+                        species_num = []
+                        species_sorted = ''.join(sorted(set(species)))
+                        for element in species:
+                            species_num.append(elements_dict[element])
+
+                        event['weight_tag'] = round(sum(species_num))
+                
 
             bad_data = []
             for dup in duplicate_pairs:
@@ -183,6 +203,13 @@ def bucket_mol_id(data: list):
                 merged_event['mulliken'] = mulliken
                 merged_event['resp'] = resp
                 
+                species = merged_event['species']
+                species_num = []
+                species_sorted = ''.join(sorted(set(species)))
+                for element in species:
+                    species_num.append(elements_dict[element])
+                merged_event['weight_tag'] = round(sum(species_num))
+                
                 bucket[mol_id].append(merged_event)
 
     if len(bad_ids)!=0:
@@ -197,6 +224,35 @@ def bucket_mol_id(data: list):
                 print(mol_id)
         return bucket
 
+    
+def force_magnitude_filter(cutoff: float,
+                           data: dict):
+    """
+    This method returns both dict of mol_id, force_values, and general info of data that is equal to or above the cuttoff value.
+    Cutoff: <float> ev per angstrom 
+    
+    Returns: Dict
+    """
+    force_dict = {}
+    
+    for mol_id in tqdm(data):
+        for config in data[mol_id]:
+            forces = config['gradients']
+            for path_point in forces:
+                for atom in path_point:
+                    res = np.sqrt(sum([i**2 for i in atom]))
+                    if res >= cutoff:
+                        try:
+                            force_dict['removed_forces'].append(res)
+                            force_dict['removed_mol_ids'].append(mol_id)
+                            force_dict['info'].append([mol_id, config['charge_spin'], res])
+                        except KeyError:
+                            force_dict['removed_forces'] = [res]
+                            force_dict['removed_mol_ids'] = [mol_id]
+                            force_dict['info'] = [mol_id, config['charge_spin'], res]
+    return force_dict
+    
+
 def __mol_id_weight_bins(bucket: dict):
     """
     This method takes in the output from bucket_mol_id.
@@ -206,10 +262,10 @@ def __mol_id_weight_bins(bucket: dict):
     The intent is create a dict such that we can sample from evenly based on weight. We also want to ensure even
     representation of atom type across train/val/test, hence why we include the atoms used in the key.
     """
-
+    
+    weight_dist = {}
     weight_dict = {}
     for mol_id in tqdm(bucket):
-        an = pyasl.AtomicNo()
         species = bucket[mol_id][0]['species']
         species_num = []
         species_sorted = ''.join(sorted(set(species)))
@@ -217,12 +273,17 @@ def __mol_id_weight_bins(bucket: dict):
             species_num.append(elements_dict[element])
 
         try:
+            weight_dist[round(sum(species_num))]+=1
+        except KeyError:
+            weight_dist[round(sum(species_num))]=1
+            
+        try:
             weight_dict[str(sum(species_num))+'_'+species_sorted].append(mol_id)
 
         except KeyError:
             weight_dict[str(sum(species_num))+'_'+species_sorted] = [mol_id]
     
-    return weight_dict
+    return weight_dict, weight_dist
 
 def train_val_test_split(bucket: dict,
                          train_size: float,
@@ -233,7 +294,7 @@ def train_val_test_split(bucket: dict,
     The method requires a validation set, but the user can combine it with test if they so choose.
     """
     
-    weight_dict = __mol_id_weight_bins(bucket)
+    weight_dict, weight_dist = __mol_id_weight_bins(bucket)
     
     train_marker = train_size
     val_marker = train_size + val_size
@@ -264,7 +325,86 @@ def train_val_test_split(bucket: dict,
     split['val']=val_data
     split['test']=test_data
     
-    return split
+    return split, weight_dist
+
+def split(a, n):
+    k, m = divmod(len(a), n)
+    return (a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
+
+def flatten(data):
+    return [x for y in data for x in y]
+
+def tagger(train_data, dist):
+    
+    # Flatten train_data into a pool of data points
+    flat = [x for y in train_data for x in y] 
+    
+    # Find all the weights that appear less than 20 occurances
+    cutoff_bin = [x for x in dist if .05*dist[x]<1]
+    
+    bins = {}
+    cutoff_data = {}
+    
+    for point in flat:
+        try:
+            bins[point['weight_tag']].append(point['mol_id'])
+        except KeyError:
+            bins[point['weight_tag']] = [point['mol_id']]
+        
+    
+    mol_id_tag = {}
+    
+    for weight_group in tqdm(bins):
+        tag_groups = list(split(list(set(bins[weight_group])),20))
+        chunk = 0
+        for group in tag_groups:
+            for mol_id in group:
+                mol_id_tag[mol_id] = chunk
+            chunk += 1
+
+    for point in tqdm(flat):
+        if point['mol_id'] in mol_id_tag:
+            point['chunk'] = mol_id_tag[point['mol_id']]      
+    
+    return flat
+
+def build_atoms(data: dict,
+                energy: str = None,
+                forces: str = None,
+                charge:str = None,
+                spin:str = None,
+                train = False) -> ase.Atoms:
+    """ 
+    Populate Atoms class with atoms in molecule.
+        atoms.info : global variables
+        atoms.array : variables for individual atoms
+        
+    Both "energy" and "forces" are the dict strings in data.
+    """
+    atom_list = []
+    for i in range(3):
+        atoms = ase.atoms.Atoms(
+            symbols=data['species'],
+            positions=data['geometries'][i]
+        )
+        if energy is not None:
+            atoms.info['energy'] = data[energy][i]
+        if forces is not None:
+            atoms.arrays['forces'] = np.array(data[forces][i])
+        if charge is not None:
+             atoms.info['charge'] = data[charge]
+        if spin is not None:
+            atoms.info['spin'] = data[spin]
+        if train:
+            atoms.info['chunk'] = data['chunk']
+        if i == 0:
+            atoms.info['position_type'] = 'start'
+        if i == 1:
+            atoms.info['position_type'] = 'energetic_middle'
+        if i == 2:
+            atoms.info['position_type'] = 'minimum'
+        atom_list.append(atoms)
+    return atom_list
 
 def build_atoms_iterator(data: list):
     """
@@ -282,21 +422,28 @@ def build_atoms_iterator(data: list):
             data_set+=atoms
     return data_set
 
-def build_manager(data: dict):
+def build_manager(data: dict, weight_dist, train):
     """
     Manage building atoms for train/val/test splits
     """
+    
+    data['train'] = tagger(data['train'], weight_dist)
+    data['val'] = flatten(data['val'])
+    data['test'] = flatten(data['test'])
+    
     build = {}
     for split in data:
-        build[split] = build_atoms_iterator(data[split])
+        if split == 'train':
+            build[split] = build_atoms_iterator(data[split], train=train)
+        else:
+            build[split] = build_atoms_iterator(data[split])
     return build
 
 def create_dataset(data: dict,
-                   file_name: str,
-                   path: str):
+                   file_name:str,
+                   path:str):
     """
-    This method will handle the I/O for writing the data to xyz files to the path provided, making no assumptions 
-    about the format of the individual data, i.e., the data may or may not be ASE atoms.
+    This method will handle the I/O for writing the data to xyz files to the path provided.
     """
     train_data = data['train']
     val_data = data['val']

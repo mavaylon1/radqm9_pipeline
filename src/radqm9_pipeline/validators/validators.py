@@ -8,7 +8,8 @@ def charge_spin_validator(bucket: dict):
     
     return: None (if valid) | bad_data-->list of invalid mol_ids (if invalid)
     """
-
+    
+    bad_data = []
     for mol_id in bucket:
         pairs = [event['charge_spin'] for event in bucket[mol_id]]
         
@@ -132,3 +133,51 @@ def format_validator(data: list):
             if len(event['gradients'])!=3:
                 msg = 'The forces are not length 3'
                 raise ValueError(msg)
+                
+def chunk_validator(data, training):
+    elements_dict = read_elements('/pscratch/sd/m/mavaylon/sam_ldrd/radqm9_pipeline/src/radqm9_pipeline/modules/elements.pkl')
+    
+    type_total_dict = {}
+    for point in tqdm(training):
+        species = point['species']
+        species_num = 0
+        for element in species:
+            species_num+=elements_dict[element]
+        try:
+            type_total_dict[str(species_num)].append(point)
+        except KeyError:
+            type_total_dict[str(species_num)]= [point]
+    
+    
+    element_list = []
+    weight_dict = {}
+    ratio_dict = {}
+    split_element_dict = {}
+    ratio_element_dict = {}
+    for mol_id in tqdm(data):
+        # check for four charge_spin pairs
+        if len(mol_id)!=4:
+            #add
+            pass
+
+        # weight distribution
+        species = mol_id['species']
+        species_num = []
+        for element in species:
+            species_num.append(elements_dict[element])
+        try:
+            weight_dict[str(sum(species_num))]+= 1
+        except KeyError:
+            weight_dict[str(sum(species_num))]=1
+
+        for element in list(set(species)):
+            try:
+                split_element_dict[element] += 1
+            except KeyError:
+                split_element_dict[element] =1 
+
+    output = {}
+    for key in weight_dict:
+        output[key] = [weight_dict[key], len(type_total_dict[key])]
+    
+    return output

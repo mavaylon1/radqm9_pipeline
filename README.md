@@ -1,6 +1,6 @@
 # radqm9_pipeline
 
-How to install?
+## How to install?
 
 1. `git clone https://github.com/mavaylon1/radqm9_pipeline.git`
 2. `pip install -r requirements.txt`
@@ -11,6 +11,8 @@ How to install?
 7. `cd mace`
 8. `pip install -r requirements.txt`
 9. `pip install -e .`
+
+## Background Information
 
 This is a pipeline for formatting the radqm9 dataset for MACE. The pipeline can create different dataset configurations based on the properties within radqm9.
 

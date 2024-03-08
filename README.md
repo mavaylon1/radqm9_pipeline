@@ -1,6 +1,6 @@
 # radqm9_pipeline
 
-How to intall?
+How to install?
 
 1. `git clone https://github.com/mavaylon1/radqm9_pipeline.git`
 2. `pip install -r requirements.txt`

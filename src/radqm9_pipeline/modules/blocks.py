@@ -6,7 +6,6 @@ import numpy as np
 import ase
 import ase.io
 
-from radqm9_pipeline.ase_data.data_to_atoms import build_atoms
 from radqm9_pipeline.elements import read_elements
 
 import os

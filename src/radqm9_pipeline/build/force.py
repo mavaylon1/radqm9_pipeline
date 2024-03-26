@@ -85,12 +85,16 @@ class ForcesBuilder(Builder):
         self.molecules.ensure_index("task_ids")
         self.molecules.ensure_index("formula_alphabetical")
         self.molecules.ensure_index("species_hash")
+        self.molecules.ensure_index("charge")
+        self.molecules.ensure_index("spin_multiplicity")
 
         # Search index for force properties
         self.forces.ensure_index("molecule_id")
         self.forces.ensure_index("task_id")
         self.forces.ensure_index("solvent")
         self.forces.ensure_index("lot_solvent")
+        self.forces.ensure_index("charge")
+        self.forces.ensure_index("spin_multiplicity")
         self.forces.ensure_index("property_id")
         self.forces.ensure_index("last_updated")
         self.forces.ensure_index("formula_alphabetical")

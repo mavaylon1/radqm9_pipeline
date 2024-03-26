@@ -10,12 +10,10 @@ from maggma.utils import grouper
 
 from emmet.core.qchem.task import TaskDocument
 from emmet.core.qchem.molecule import MoleculeDoc, evaluate_lot
-from emmet.core.molecules.trajectory import (
-    ForcesDoc,
-    TrajectoryDoc
-)
 from emmet.core.utils import jsanitize
 from emmet.builders.settings import EmmetBuildSettings
+
+from radqm9_pipeline.models.force import ForcePointDoc
 
 
 __author__ = "Evan Spotte-Smith"
@@ -29,13 +27,19 @@ class ForcesBuilder(Builder):
     MoleculeDoc (lowest electronic energy, highest level of theory for
     each solvent available).
 
+    This Builder differs from that (being) implemented in Emmet because
+    it allows documents to be made at "off-charge"/"off-spin" states;
+    that is, a ForcePointDoc can be made at a charge/spin state that is
+    different from the charge/spin state at wihch the molecular geometry
+    was optimized.
+
     The process is as follows:
         1. Gather MoleculeDocs by species hash
-        2. For each doc, sort tasks by solvent
-        3. For each solvent, grab the best TaskDoc (doc with force
+        2. For each doc, sort tasks by charge/spin and by solvent
+        3. For each solvent/charge/spin combination, grab the best TaskDoc (doc with force
             information that has the highest level of theory with lowest
              electronic energy for the molecule)
-        4. Convert TaskDoc to ForcesDoc
+        4. Convert TaskDoc to ForcePointDoc
 
     """
 
@@ -184,7 +188,6 @@ class ForcesBuilder(Builder):
             force_entries = [
                 e
                 for e in mol.entries
-                if e["charge"] == mol.charge
                 and e["task_type"] == "Force"
             ]
 
@@ -193,52 +196,59 @@ class ForcesBuilder(Builder):
             for entry in force_entries:
                 by_solvent[entry["solvent"]].append(entry)
 
-            for solvent, entries in by_solvent.items():
-                # No force calculations
-                if len(entries) == 0:
-                    continue
-                else:
-                    best = sorted(
-                        entries,
-                        key=lambda x: (
-                            sum(evaluate_lot(x["level_of_theory"])),
-                            x["energy"],
-                        ),
-                    )[0]
-                    task = best["task_id"]
+            for solvent, solv_entries in by_solvent.items():
+                by_charge_spin = defaultdict(list)
 
-                tdoc = self.tasks.query_one(
-                    {
-                        "task_id": task,
-                        "species_hash": shash,
-                        "orig": {"$exists": True},
-                    }
-                )
+                for entry in solv_entries:
+                    by_charge_spin[(entry["charge"], entry["spin_multiplicity"])].append(entry)
 
-                if tdoc is None:
-                    try:
-                        tdoc = self.tasks.query_one(
-                            {
-                                "task_id": int(task),
-                                "species_hash": shash,
-                                "orig": {"$exists": True},
-                            }
-                        )
-                    except ValueError:
-                        tdoc = None
+                for (charge, spin), entries in by_charge_spin.items():
 
-                if tdoc is None:
-                    continue
+                    # No force calculations
+                    if len(entries) == 0:
+                        continue
+                    else:
+                        best = sorted(
+                            entries,
+                            key=lambda x: (
+                                sum(evaluate_lot(x["level_of_theory"])),
+                                x["energy"],
+                            ),
+                        )[0]
+                        task = best["task_id"]
 
-                task_doc = TaskDocument(**tdoc)
+                    tdoc = self.tasks.query_one(
+                        {
+                            "task_id": task,
+                            "species_hash": shash,
+                            "orig": {"$exists": True},
+                        }
+                    )
 
-                if task_doc is None:
-                    continue
+                    if tdoc is None:
+                        try:
+                            tdoc = self.tasks.query_one(
+                                {
+                                    "task_id": int(task),
+                                    "species_hash": shash,
+                                    "orig": {"$exists": True},
+                                }
+                            )
+                        except ValueError:
+                            tdoc = None
 
-                force_doc = ForcesDoc.from_task(
-                    task_doc, molecule_id=mol.molecule_id, deprecated=False
-                )
-                force_docs.append(force_doc)
+                    if tdoc is None:
+                        continue
+
+                    task_doc = TaskDocument(**tdoc)
+
+                    if task_doc is None:
+                        continue
+
+                    force_doc = ForcePointDoc.from_task(
+                        task_doc, molecule_id=mol.molecule_id, deprecated=False
+                    )
+                    force_docs.append(force_doc)
 
         self.logger.debug(f"Produced {len(force_docs)} force docs for {shash}")
 
@@ -269,7 +279,7 @@ class ForcesBuilder(Builder):
             self.forces.remove_docs({self.forces.key: {"$in": molecule_ids}})
             self.forces.update(
                 docs=docs,
-                key=["molecule_id", "solvent"],
+                key=["molecule_id", "solvent", "charge", "spin_multiplicity"],
             )
         else:
             self.logger.info("No items to update")

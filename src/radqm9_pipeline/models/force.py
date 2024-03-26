@@ -29,16 +29,6 @@ class ForcePointDoc(PropertyDoc):
         description="Cartesian coordinates of the atoms at this point (units: Angstrom)"
     )
 
-    point_charge: int = Field(
-        ...,
-        description="Charge of this point - can be different to the charge of the (optimized) molecule!"
-    )
-
-    point_spin_multiplicity: int = Field(
-        ...,
-        description="Spin multiplicity of this point - can be different to the spin of the (optimized) molecule!"
-    )
-
     energy: float = Field(
         ...,
         description="Electronic energy at this point (units: Ha)"
@@ -126,8 +116,6 @@ class ForcePointDoc(PropertyDoc):
         # Basic information
         species = [str(i) for i in mol.species]
         coordinates = mol.cart_coords
-        point_charge = mol.charge
-        point_spin_multiplicity = mol.spin_multiplicity
 
         # Energy and forces
         energy = task.output.final_energy
@@ -222,8 +210,7 @@ class ForcePointDoc(PropertyDoc):
         ):
             return None
 
-        id_string = f"force_single_point-{molecule_id}-{point_charge}-{point_spin_multiplicity}-"
-        id_string += f"{task.task_id}-{task.lot_solvent}"
+        id_string = f"force_single_point-{molecule_id}-{task.task_id}-{task.lot_solvent}"
         h = blake2b()
         h.update(id_string.encode("utf-8"))
         property_id = h.hexdigest()
@@ -237,8 +224,6 @@ class ForcePointDoc(PropertyDoc):
             lot_solvent=task.lot_solvent,
             species=species,
             coordinates=coordinates,
-            point_charge=point_charge,
-            point_spin_multiplicity=point_spin_multiplicity,
             energy=energy,
             forces=forces,
             mulliken_partial_charges=mulliken_partial_charges,

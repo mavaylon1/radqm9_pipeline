@@ -10,21 +10,12 @@ from emmet.core.math import Vector3D
 from emmet.core.qchem.calc_types import CalcType, LevelOfTheory, TaskType
 from emmet.core.molecules.molecule_property import PropertyDoc
 from emmet.core.mpid import MPID, MPculeID
-from emmet.core.molecules.orbitals import (
-    NaturalPopulation,
-    LonePair,
-    Bond,
-    ThreeCenterBond,
-    Hyperbond,
-    Interaction,
-)
-from emmet.core.molecules.metal_binding import MetalBindingData
 
 
 __author__ = "Evan Spotte-Smith <ewcspottesmith@lbl.gov>"
 
 
-T = TypeVar("T", bound="MoleculeSummaryDoc")
+T = TypeVar("T", bound="RadQM9SummaryDoc")
 
 
 class HasProps(Enum):
@@ -41,7 +32,7 @@ class HasProps(Enum):
     vibration = "vibration"
 
 
-class MoleculeSummaryDoc(PropertyDoc):
+class RadQM9SummaryDoc(PropertyDoc):
     """
     Summary information about molecules and their properties, useful for searching.
     """
@@ -49,9 +40,9 @@ class MoleculeSummaryDoc(PropertyDoc):
     property_name: str = "summary"
 
     # molecules
-    molecules: Dict[str, Molecule] = Field(
+    molecule: Molecule = Field(
         ...,
-        description="The lowest energy optimized structures for this molecule for each solvent.",
+        description="The lowest energy optimized structure for this molecule.",
     )
 
     molecule_levels_of_theory: Optional[Dict[str, str]] = Field(
@@ -356,12 +347,13 @@ class MoleculeSummaryDoc(PropertyDoc):
         property_id = h.hexdigest()
         doc["property_id"] = property_id
 
-        return MoleculeSummaryDoc(molecule_id=molecule_id, **doc)
+        return RadQM9SummaryDoc(molecule_id=molecule_id, **doc)
 
 
 # Key mapping
 summary_fields: Dict[str, list] = {
     HasProps.molecules.value: [
+        "molecule",
         "charge",
         "spin_multiplicity",
         "natoms",
@@ -372,7 +364,6 @@ summary_fields: Dict[str, list] = {
         "formula_alphabetical",
         "chemsys",
         "symmetry",
-        "molecules",
         "deprecated",
         "task_ids",
         "species_hash",

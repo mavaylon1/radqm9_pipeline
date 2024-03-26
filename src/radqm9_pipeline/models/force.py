@@ -158,10 +158,13 @@ class ForcePointDoc(PropertyDoc):
                 float(task.output.nbo["natural_populations"][0]["Charge"][str(i)])
                 for i in range(len(mol))
             ]
-            nbo_partial_spins = [
-                float(task.output.nbo["natural_populations"][0]["Density"][str(i)])
-                for i in range(len(mol))
-            ]
+            if mol.spin_multiplicity == 1:
+                nbo_partial_spins = [0.0 for i in range(len(mol))]
+            else:
+                nbo_partial_spins = [
+                    float(task.output.nbo["natural_populations"][0]["Density"][str(i)])
+                    for i in range(len(mol))
+                ]
 
         # Dipoles
         # For SP and force calcs, dipoles stored in output

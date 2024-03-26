@@ -192,7 +192,7 @@ class ForcesBuilder(Builder):
             force_entries = [
                 e
                 for e in mol.entries
-                and e["task_type"] == "Force"
+                if e["task_type"] == "Force"
             ]
 
             # Organize by solvent environment

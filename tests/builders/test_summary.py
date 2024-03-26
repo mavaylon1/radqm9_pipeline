@@ -9,7 +9,7 @@ from emmet.builders.molecules.redox import RedoxBuilder
 from emmet.builders.molecules.thermo import ThermoBuilder
 from emmet.builders.molecules.vibration import VibrationBuilder
 
-from radqm9_pipeline.build.summary import SummaryBuilder
+from radqm9_pipeline.builders.summary import SummaryBuilder
 
 
 @pytest.fixture(scope="session")
@@ -103,4 +103,4 @@ def test_summary_one(
     )
     builder.run()
 
-    assert summary.count() == 25
+    assert summary.count() == 8

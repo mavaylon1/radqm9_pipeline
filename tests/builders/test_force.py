@@ -3,7 +3,7 @@ from maggma.stores import JSONStore, MemoryStore
 
 from emmet.builders.qchem.molecules import MoleculesAssociationBuilder, MoleculesBuilder
 
-from radqm9_pipeline.build.force import ForcesBuilder
+from radqm9_pipeline.builders.force import ForcesBuilder
 
 
 __author__ = "Evan Spotte-Smith <ewcspottesmith@lbl.gov>"

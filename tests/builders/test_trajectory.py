@@ -2,10 +2,8 @@ import pytest
 from maggma.stores import JSONStore, MemoryStore
 
 from emmet.builders.qchem.molecules import MoleculesAssociationBuilder, MoleculesBuilder
-from emmet.builders.molecules.trajectory import (
-    ForcesBuilder,
-    TrajectoryBuilder
-)
+
+from radqm9_pipeline.builders.trajectory import TrajectoryBuilder
 
 
 __author__ = "Evan Spotte-Smith <ewcspottesmith@lbl.gov>"

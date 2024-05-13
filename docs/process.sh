@@ -9,8 +9,8 @@
 
 export SLURM_CPU_BIND="cores"
 srun python ../src/radqm9_pipeline/processing/process_dataset.py \
-#     --file="path to dataset " \
-#     --forces_key="forces" \
-#     --prefix="<add prefix>" \
-#     --directory='path to directory to store hdf5 files. Do not end with "/"' \
+    --file="/pscratch/sd/m/mavaylon/sam_ldrd/all_clean_charge_full_chunked/charge_spin_test/charge_spin_test_0_3" \
+    --forces_key="forces" \
+    --prefix="charge_spin_test_0_3_" \
+    --directory="/pscratch/sd/m/mavaylon/chem_directory/charge_spin_test_0_3" \
 

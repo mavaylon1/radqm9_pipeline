@@ -26,77 +26,55 @@ def merge_data(folder: str):
     
     return merged_data
 
-def bucket_mol_id_all_pts(data: list):
+def bucket_mol_id(data: list):
     """
-    Method requires a list of events such that each item in the list is a single event.
+    Return: 
+    - Good_data--> This means data that either had no duplicates or data that has been able to be mended 
+    - bad_ids --> are events that are not able to be mended
+    - length is the total number of events both mended and unmended
     
-    Steps:
-    - Bucket the events in a dictionary such that the keys are the mol_ids and the values are all events with that mol_id. Create
-      a new field for each event called "charge_spin" for easy down_stream checks.
-    - For each mol_id, check the list of events for duplicate "charge_spin". 
-      If there are duplicates, for each duplicate pair:
-                1. Get all events that have the duplicate charge_spin
-                2. Remove these events from the values of the mol_id in the bucket. This is to process them and re-add them later or move to
-                   bad data.
-                3. Search for the order in which these duplicate events for the specific charge_spin should be attached. If there is no match,
-                   this is considered bad data and will be moved out of the bucket.
-                4. If an order can be established, create a new "merged" event. 
-                5. Append the event to the values of the mol_id of the bucket.
-                6. Repeat for every duplicate pair.
+    TODO: fix the merge duplication in geometries, for now this does not matter since we downsample.
+  
     """
     bucket = {}
     
     # Step 1    
+    """
+    Bucket into mol ids
+    """
     for event in tqdm(data):
-        event['charge_spin'] = str(event['charge'])+','+str(event['spin'])
         try:
             bucket[event['mol_id']].append(event) 
         except KeyError:
             bucket[event['mol_id']] = [event]
-
+    
     # Step 2
+    """
+    Find duplicate pairs in each mol id.
+    What are duplicate pairs? These are training sessions that most likely continued as a separate job. 
+    They need to be attached if possible. 
+    """
+    length=0
     bad_ids = []
     for mol_id in tqdm(bucket):
         pairs = [event['charge_spin'] for event in bucket[mol_id]]
         # Get a list of all charge_spins that have duplicates.
         duplicate_pairs = [item for item, count in collections.Counter(pairs).items() if count > 1] 
-        non_dup_pairs = []
         if len(duplicate_pairs)!=0:
-            non_dup_pairs = list(set(pairs))
-            for i in duplicate_pairs:
-                non_dup_pairs.remove(i)
-        
-        if len(duplicate_pairs)==0:
-            for pair in bucket[mol_id]:
-                # add weight tag
-                species = pair['species']
-                species_num = []
-                species_sorted = ''.join(sorted(set(species)))
-                for element in species:
-                    species_num.append(elements_dict[element])
-                    
-                pair['weight_tag'] = round(sum(species_num))
-        else:
-            if len(non_dup_pairs)!=0:
-                for pair in non_dup_pairs:
-                    case_events = [event for event in bucket[mol_id] if event['charge_spin']==pair]
-                    for event in case_events:
-                        # add weight tag
-                        species = event['species']
-                        species_num = []
-                        species_sorted = ''.join(sorted(set(species)))
-                        for element in species:
-                            species_num.append(elements_dict[element])
-
-                        event['weight_tag'] = round(sum(species_num)) 
-
-            bad_data = []
+            """
+            Handle the duplicate pairs to see if they can be merged
+            """
+            len_p = len(bucket[mol_id])
             for dup in duplicate_pairs:
+                bad_data = []
                 # Order events
                 case_events = [event for event in bucket[mol_id] if event['charge_spin']==dup]
-                for event in case_events:
+                bad_events = []
+                bad_events += case_events
+
+                for event in case_events: # remove events to be fixed. If fixable, add back at the end.
                     bucket[mol_id].remove(event) 
-                
+        
                 ordered = [case_events[0]]
                 del case_events[0]
                 
@@ -126,62 +104,65 @@ def bucket_mol_id_all_pts(data: list):
                     else:
                         break
                     
-                if len(bad_data)==0:
-                    pass
+                if len(bad_data)==0:                
+                    # Merge the ordered events: forces, geometries
+                    merged_event = {}
+                    merged_event['task_id'] = ordered[0]['task_id']
+                    merged_event['mol_id'] = mol_id
+                    merged_event['name'] = ordered[0]['name']
+                    merged_event['charge'] = ordered[0]['charge']
+                    merged_event['spin'] = ordered[0]['spin']
+                    merged_event['charge_spin'] = ordered[0]['charge_spin']
+                    merged_event['species'] = ordered[0]['species']
+
+                    geometries = []
+                    energies = []
+                    grads = []
+                    mulliken = []
+                    resp = []
+                    dipole_moments = []
+                    dipole_moments_resp = []
+                    for event in ordered:
+                        geometries += event['geometries']
+                        energies += event['energies']
+                        grads += event['gradients']
+                        mulliken += event['mulliken']
+                        resp += event['resp']
+                        dipole_moments += event['dipole_moments']
+                        dipole_moments_resp += event['dipole_moments_resp']
+
+                    merged_event['geometries'] = geometries
+                    merged_event['energies'] = energies
+                    merged_event['gradients'] = grads
+                    merged_event['mulliken'] = mulliken
+                    merged_event['resp'] = resp
+                    merged_event['dipole_moments'] = dipole_moments
+                    merged_event['dipole_moments_resp'] = dipole_moments_resp
+
+                    bucket[mol_id].append(merged_event)
                 else:
-                    bad_ids += bad_data
-                    continue
-
-                # Merge the ordered events: forces, geometries
-                merged_event = {}
-                merged_event['task_id'] = ordered[0]['task_id']
-                merged_event['mol_id'] = mol_id
-                merged_event['name'] = ordered[0]['name']
-                merged_event['charge'] = ordered[0]['charge']
-                merged_event['spin'] = ordered[0]['spin']
-                merged_event['charge_spin'] = ordered[0]['charge_spin']
-                merged_event['species'] = ordered[0]['species']
-                
-                geometries = []
-                energies = []
-                grads = []
-                mulliken = []
-                resp = []
-                for event in ordered:
-                    geometries += event['geometries']
-                    energies += event['energies']
-                    grads += event['gradients']
-                    mulliken += event['mulliken']
-                    resp += event['resp']
-               
-                merged_event['geometries'] = geometries
-                merged_event['energies'] = energies
-                merged_event['gradients'] = grads
-                merged_event['mulliken'] = mulliken
-                merged_event['resp'] = resp
-                
-                species = merged_event['species']
-                species_num = []
-                species_sorted = ''.join(sorted(set(species)))
-                for element in species:
-                    species_num.append(elements_dict[element])
-                merged_event['weight_tag'] = round(sum(species_num))
-                
-                bucket[mol_id].append(merged_event)
-
-    if len(bad_ids)!=0:
-        ids = list(set(bad_ids))
-        for _id in ids:
-            bucket.pop(_id)
+                    bad_ids += bad_events
+            len_r = len(bucket[mol_id])
+            length += len_p-len_r
+    good_data = flatten_filter(bucket)
         
-        return ids, bucket
-    else:
-        for mol_id in bucket:
-            if len(bucket[mol_id])>4:
-                print(mol_id)
-        return bucket
+    return good_data, bad_ids, length
 
-    
+
+def flatten_filter(data: dict):
+    """
+    Flatten bucket (dict) to list
+    """
+    data_to_be_parsed = []
+    for mol_id in tqdm(data):
+        for pair in data[mol_id]:
+            data_to_be_parsed.append(pair)
+    return data_to_be_parsed    
+
+def add_unique_id(data: list):
+    for item in data:
+        item['mol_cs'] = str(item['mol_id']) + str(item['charge_spin'])
+
 def average_force_trajectory(pair):
     """
     This method will take a specfic spin charge pair. At each point in the optimization trajectory, the 
@@ -196,7 +177,7 @@ def average_force_trajectory(pair):
     del forces[0]
     return forces
 
-def sparse_trajectory(bucket: dict):
+def sparse_trajectory(bucket: list):
     """
     This takes the cleaned data and will sparsifiy the optimization trajectories. How this is done will depend on the
     charge_spin pair:
@@ -206,271 +187,95 @@ def sparse_trajectory(bucket: dict):
     Note: Molecular Force is just the average of the force magnitudes of each atom in the molecule:
     """
     
-    for mol_id in tqdm(bucket):
-        for pair in bucket[mol_id]:
-            if pair['charge_spin'] == '0,1':
-                geometries = [pair['geometries'][0], pair['geometries'][-1]]
-                energies = [pair['energies'][0], pair['energies'][-1]]
-                grads = [pair['gradients'][0], pair['gradients'][-1]]
-                mulliken = [pair['mulliken'][0], pair['mulliken'][-1]]
-                resp = [pair['resp'][0], pair['resp'][-1]]
-                
-                pair['geometries'] = geometries
-                pair['energies'] = energies
-                pair['gradients'] = grads
-                pair['mulliken'] = mulliken
-                pair['resp'] = resp
-            else:
-                force_dict = average_force_trajectory(pair)
-                max_index = max(force_dict, key=force_dict.get)
-                
-                geometries = [pair['geometries'][0], pair['geometries'][max_index], pair['geometries'][-1]]
-                energies = [pair['energies'][0], pair['energies'][max_index], pair['energies'][-1]]
-                grads = [pair['gradients'][0], pair['gradients'][max_index], pair['gradients'][-1]]
-                mulliken = [pair['mulliken'][0], pair['mulliken'][max_index], pair['mulliken'][-1]]
-                resp = [pair['resp'][0], pair['resp'][max_index], pair['resp'][-1]]
-                
-                pair['geometries'] = geometries
-                pair['energies'] = energies
-                pair['gradients'] = grads
-                pair['mulliken'] = mulliken
-                pair['resp'] = resp
+    for pair in tqdm(bucket):
+        if pair['charge_spin'] == '0,1':
+            geometries = [pair['geometries'][0], pair['geometries'][-1]]
+            energies = [pair['energies'][0], pair['energies'][-1]]
+            grads = [pair['gradients'][0], pair['gradients'][-1]]
+            mulliken = [pair['mulliken'][0], pair['mulliken'][-1]]
+            resp = [pair['resp'][0], pair['resp'][-1]]
+            dipole_moments = [pair['dipole_moments'][0], pair['dipole_moments'][-1]]
+            dipole_moments_resp = [pair['dipole_moments_resp'][0], pair['dipole_moments_resp'][-1]]
+
+            pair['geometries'] = geometries
+            pair['energies'] = energies
+            pair['gradients'] = grads
+            pair['mulliken'] = mulliken
+            pair['resp'] = resp
+            pair['dipole_moments'] = dipole_moments
+            pair['dipole_moments_resp'] = dipole_moments_resp
+        else:
+            force_dict = average_force_trajectory(pair)
+            max_index = max(force_dict, key=force_dict.get)
+
+            geometries = [pair['geometries'][0], pair['geometries'][max_index], pair['geometries'][-1]]
+            energies = [pair['energies'][0], pair['energies'][max_index], pair['energies'][-1]]
+            grads = [pair['gradients'][0], pair['gradients'][max_index], pair['gradients'][-1]]
+            mulliken = [pair['mulliken'][0], pair['mulliken'][max_index], pair['mulliken'][-1]]
+            resp = [pair['resp'][0], pair['resp'][max_index], pair['resp'][-1]]
+            dipole_moments = [pair['dipole_moments'][0], pair['dipole_moments'][max_index], pair['dipole_moments'][-1]]
+            dipole_moments_resp = [pair['dipole_moments_resp'][0], pair['dipole_moments_resp'][max_index], pair['dipole_moments_resp'][-1]]
+
+            pair['geometries'] = geometries
+            pair['energies'] = energies
+            pair['gradients'] = grads
+            pair['mulliken'] = mulliken
+            pair['resp'] = resp
+            pair['dipole_moments'] = dipole_moments
+            pair['dipole_moments_resp'] = dipole_moments_resp
     
 def force_magnitude_filter(cutoff: float,
-                           data: dict):
+                           data: list):
     """
     This method returns both data that meets the cuttoff value and data that is equal to or above the cuttoff value.
+    If this is run before downsampling, it removes the entire data point trajectory.
     
-    Returns: Dict
+    Returns: lists
     """
-    force_dict = {}
+    good = []
+    bad = []
     
-    for mol_id in tqdm(data):
-        for config in data[mol_id]:
-            forces = config['gradients']
-            for path_point in forces:
-                for atom in path_point:
-                    res = np.sqrt(sum([i**2 for i in atom]))
-                    if res >= cutoff:
-                        try:
-                            force_dict['removed_forces'].append(res)
-                            force_dict['removed_mol_ids'].append(mol_id)
-                            force_dict['info'].append([mol_id, config['charge_spin'], res])
-                        except KeyError:
-                            force_dict['removed_forces'] = [res]
-                            force_dict['removed_mol_ids'] = [mol_id]
-                            force_dict['info'] = [mol_id, config['charge_spin'], res]
-                        # print(mol_id, config)
-                        try:
-                            data[mol_id].remove(config)
-                        except ValueError:
-                            pass
-                    else:
-                        try:
-                            force_dict['filtered_force_magnitude'].append(res)
-                        except KeyError:
-                            force_dict['filtered_force_magnitude'] = [res]
+    for item in tqdm(data):
+        forces = item['gradients']
+        for path_point in forces:
+            next_item = False
+            for atom in path_point:
+                res = np.sqrt(sum([i**2 for i in atom]))
+                if res >= cutoff:
+                    bad.append(item)
+                    next_item = True
+                    break
+            if next_item:
+                break
+        if not next_item:
+            good.append(item)
                             
-    return force_dict, data
+    return good, bad
 
-def prepare_graph_filter(data: dict):
-    """
-    Go through the data and retrieve the data needed for graph separation check.
-    1. Ignore charge_spin pair = 0,1
-    2. Ignore all starting points in the configurations.
-    """
-    data_to_be_parsed = []
-    for mol_id in tqdm(data):
-        for pair in data[mol_id]:
-            if pair['charge_spin'] != '0,1':
-                data_to_be_parsed.append(pair)
-    
-    # Ignore the first is in the filter_broken_graphs
-    return data_to_be_parsed
+def build_graph(species, position):
+    atoms = ase.atoms.Atoms(symbols=species,
+                            positions=position)
+    mol = AseAtomsAdaptor.get_molecule(atoms)
+    graph = MoleculeGraph.with_local_env_strategy(mol, OpenBabelNN())
+    return graph
 
 def filter_broken_graphs(data: list):
     broken = []
     good = []
     
     for item in tqdm(data):
-        for traj_point in item['geometries'][1:]:
-                atoms = ase.atoms.Atoms(symbols=item['species'],
-                                        positions=traj_point)
-                mol = AseAtomsAdaptor.get_molecule(atoms)
-                graph = MoleculeGraph.with_local_env_strategy(mol, OpenBabelNN())
-
-                connected = nx.is_connected(graph.graph.to_undirected())
-                if not connected:
-                    broken.append(item)
-                else:
-                    good.append(item)
+        for traj_point in item['geometries'][1:]: # Ignore the first is in the filter_broken_graphs
+            graph = build_graph(item['species'], traj_point)
+            connected = nx.is_connected(graph.graph.to_undirected())
+            if not connected:
+                broken.append(item)
+                break
+        if connected:
+            good.append(item)
 
     return good, broken
 
-def removed_broken_graph_data(data: dict,
-                              broken: list):
-    """
-    
-    """
-    data_to_be_parsed = {}
-    for mol_id in tqdm(data):
-        for pair in data[mol_id]:
-            # data_to_be_parsed.append(pair)
-            data_to_be_parsed[str(pair['task_id']) +'_'+str(pair['mol_id'])+'_'+pair['charge_spin']] = pair
-    print(len(data_to_be_parsed))
-    
-    print(len(broken))
-    for item in tqdm(broken):
-        data_to_be_parsed.pop(item)
-    
-    print(len(data_to_be_parsed))
-    
-    return data_to_be_parsed
 
-def __mol_id_weight_bins(data: dict):
-    """
-    This method takes in the output from removing the broken graphs.
-    
-    1. Bin the data by mol_ids in a dict.
-
-    For each mol_id, calculate the molecule weight based off the atoms. Combine that with that type of atoms used.
-    This weight+type serves as a key for a dict. The values are then the mol_ids that match the key.
-    
-    The intent is create a dict such that we can sample from evenly based on weight. We also want to ensure even
-    representation of atom type across train/val/test, hence why we include the atoms used in the key.
-    """
-    bucket={}
-    for item in tqdm(data):
-        try:
-            bucket[data[item]['mol_id']].append(data[item])
-        except KeyError:
-            bucket[data[item]['mol_id']] = [data[item]]
-    
-    
-    weight_dist = {}
-    weight_dict = {}
-    for mol_id in tqdm(bucket):
-        species = bucket[mol_id][0]['species']
-        species_num = []
-        species_sorted = ''.join(sorted(set(species)))
-        for element in species:
-            species_num.append(elements_dict[element])
-
-        try:
-            weight_dist[round(sum(species_num))]+=1
-        except KeyError:
-            weight_dist[round(sum(species_num))]=1
-            
-        try:
-            weight_dict[str(sum(species_num))+'_'+species_sorted].append(mol_id)
-
-        except KeyError:
-            weight_dict[str(sum(species_num))+'_'+species_sorted] = [mol_id]
-    
-    return weight_dict, weight_dist, bucket
-
-
-def train_val_test_split(bucket: dict,
-                         train_size: float,
-                         val_size: float):
-    """
-    This method takes in the output from mol_id_weight_bins.
-    This method will sample from each key-value pair from the input dict based on the train_size, val_size.
-    The method requires a validation set, but the user can combine it with test if they so choose.
-    """
-    
-    weight_dict, weight_dist, bucket = __mol_id_weight_bins(bucket)
-    
-    train_marker = train_size
-    val_marker = train_size + val_size
-    
-    split={}
-
-    import random
-    random.seed(10)
-    for strata in tqdm(weight_dict):
-        random.shuffle(weight_dict[strata])
-        train_index = round(len(weight_dict[strata])*train_marker)
-        val_index = round(len(weight_dict[strata])*val_marker)
-        # print(len(weight_dict[strata]))
-        # print(train_index)
-        # print(val_index)
-        # break
-              
-        
-        try:
-            train_split = (weight_dict[strata][:train_index])
-            val_split = (weight_dict[strata][train_index:val_index+1])
-            test_split = (weight_dict[strata][val_index+1:])
-            
-            if len(test_split)> len(val_split):
-                print('bleh')
-                return [weight_dict[strata], train_split, val_split, test_split, train_index, val_index+1]
-            
-            split['train']+=train_split
-            split['val']+=val_split
-            split['test']+=test_split
-            
-            
-        except KeyError:
-            split['train'] = weight_dict[strata][:train_index]
-            split['val'] = weight_dict[strata][train_index:val_index+1]
-            split['test'] = weight_dict[strata][val_index+1:]
-    train_data = [bucket[i] for i in split['train']]
-    val_data = [bucket[i] for i in split['val']]
-    test_data = [bucket[i] for i in split['test']]
-                 
-    split['train']=train_data
-    split['val']=val_data
-    split['test']=test_data
-    
-    return split, weight_dist
-
-def split(a, n):
-    k, m = divmod(len(a), n)
-    return (a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
-
-def flatten(data):
-    return [x for y in data for x in y]
-
-def tagger(train_data, dist):
-    
-    # Flatten train_data into a pool of data points
-    flat = [x for y in train_data for x in y] 
-    
-    # Find all the weights that appear less than 20 occurances
-    # cutoff_bin = [x for x in dist if .05*dist[x]<1]
-    
-    bins = {}
-    chunked_training = {}
-    
-    for point in flat:
-        try:
-            bins[point['weight_tag']].append(point['mol_id'])
-        except KeyError:
-            bins[point['weight_tag']] = [point['mol_id']]
-        
-    
-    mol_id_tag = {}
-    chunks = []
-    for weight_group in tqdm(bins):
-        tag_groups = list(split(list(set(bins[weight_group])),20))
-        chunk = 0
-        for group in tag_groups:
-            for mol_id in group:
-                chunks.append(chunk)
-                mol_id_tag[mol_id] = chunk
-            chunk += 5
-    print(set(chunks))
-    
-    for point in tqdm(flat):
-        if point['mol_id'] in mol_id_tag:
-            point['chunk'] = mol_id_tag[point['mol_id']] 
-            try:
-                chunked_training[mol_id_tag[point['mol_id']]].append(point)
-            except KeyError:
-                chunked_training[mol_id_tag[point['mol_id']]] = [point]
-    return flat, chunked_training
 
 def charge_filter(charges: list, data):
     """
@@ -573,7 +378,63 @@ def chunk_train_multiple(data: list, percentage: list):
     
     return chunked_data, weight_dict
 
-def build_atoms(data: dict,
+def get_molecule_weight(data: list):
+    """
+    The method takes in a list of data (either trajectories or single points) and sorts into a distribution
+    dictionary. The keys are the species/formula and the value of each key is the weight. appearing number of times the species
+    appears in the dataset.
+    """
+    dict_dist = {}
+    for item in tqdm(data):
+        species_num = []
+        species=''.join((sorted(item['species'])))
+        
+        for element in item['species']:
+            species_num.append(elements_dict[element])
+
+        species_sum = sum(species_num)
+        try:
+            dict_dist[species].append(species_sum)
+            dict_dist[species] = [dict_dist[species][0]]*len(dict_dist[species])
+        except KeyError:
+            dict_dist[species] = [species_sum]
+        
+    return dict_dist
+
+def molecule_weight(data: list, weight_dict):
+    """
+    This method takes in data and assigns the mass.
+    Python does a weird thing floats e.g., {126.15499999999993, 126.15499999999994}, having this and
+    get_molecule_weight gurantees that species that are the same are not being assigned different weights.
+    """
+    for item in tqdm(data):
+        weight = weight_dict[''.join((sorted(item['species'])))][0]
+        item['molecule_mass'] = weight
+        
+def weight_to_data(data: list):
+    """
+    This method buckets the data by the mass such that the dict key is the mass and the values are the data
+    points.
+    """
+    dict_data = {}
+    for item in tqdm(data):
+        try:
+            dict_data[item['molecule_mass']].append(item)
+        except KeyError:
+            dict_data[item['molecule_mass']] = [item]
+    return dict_data
+
+def length_dict(data: dict):
+    """
+    This method takes in the output of weight_to_data and returns a dictionary that is sorted from largest
+    to smallest mass. The keys are the mass and the values are the number of appearances.
+    """
+    length_dict = {key: len(value) for key, value in data.items()}
+    sorted_length_dict = {k: length_dict[k] for k in sorted(length_dict, reverse=True)}
+    
+    return sorted_length_dict
+
+def build_minimal_atoms(data: dict,
                 energy: str = None,
                 forces: str = None,
                 charge:str = None,
@@ -587,38 +448,34 @@ def build_atoms(data: dict,
     Both "energy" and "forces" are the dict strings in data.
     """
     atom_list = []
-    try:
-        for i in range(len(data['geometries'])):
-            atoms = ase.atoms.Atoms(
-                symbols=data['species'],
-                positions=data['geometries'][i]
-            )
-            if energy is not None:
-                atoms.info['energy'] = data[energy][i]
-            if forces is not None:
-                atoms.arrays['forces'] = np.array(data[forces][i])
-            if charge is not None:
-                 atoms.info['charge'] = data[charge]
-            if spin is not None:
-                atoms.info['spin'] = data[spin]
-            if train:
-                atoms.info['chunk'] = data['chunk']
-            if i == 0:
-                atoms.info['position_type'] = 'start'
-            atoms.info['mol_id'] = data['mol_id']
-            if i == 1:
-                if data['charge_spin'] == '0,1':
-                    atoms.info['position_type'] = 'end'
-                else:
-                    atoms.info['position_type'] = 'middle'
-            if i == 2:
-                atoms.info['position_type'] = 'end'
-            atom_list.append(atoms)
-    except IndexError:
-        print(i)
-        print(data['mol_id'])
+    for i in range(len(data['geometries'])):
+        atoms = ase.atoms.Atoms(
+            symbols=data['species'],
+            positions=data['geometries'][i]
+        )
+        if energy is not None:
+            atoms.info['energy'] = data[energy][i]
+        if forces is not None:
+            atoms.arrays['forces'] = np.array(data[forces][i])
+        if charge is not None:
+             atoms.info['charge'] = data[charge]
+        if spin is not None:
+            atoms.info['spin'] = data[spin]
 
-def build_atoms_iterator(data: list,
+        if i == 0:
+            atoms.info['position_type'] = 'start'
+        if i == 1:
+            if data['charge_spin'] == '0,1':
+                atoms.info['position_type'] = 'end'
+            else:
+                atoms.info['position_type'] = 'middle'
+        if i == 2:
+            atoms.info['position_type'] = 'end'
+        atom_list.append(atoms)
+    return atom_list
+
+
+def build_minimal_atoms_iterator(data: list,
                          train=False):
     """
     This method assumes the data has been validated. This will create ASE atoms to be written.
@@ -628,26 +485,10 @@ def build_atoms_iterator(data: list,
     """
     data_set=[]
     for point in tqdm(data):
-        atoms=build_atoms(point, energy='energies', forces='gradients', charge='charge', spin='spin', train=train)
+        atoms=build_minimal_atoms(point, energy='energies', forces='gradients', charge='charge', spin='spin', train=train)
         data_set+=atoms
     return data_set
 
-def build_manager(data: dict, weight_dist, train):
-    """
-    Manage building atoms for train/val/test splits
-    """
-    
-    data['train'] = tagger(data['train'], weight_dist)
-    data['val'] = flatten(data['val'])
-    data['test'] = flatten(data['test'])
-    
-    build = {}
-    for split in data:
-        if split == 'train':
-            build[split] = build_atoms_iterator(data[split], train=train)
-        else:
-            build[split] = build_atoms_iterator(data[split])
-    return build
 
 def create_dataset(data: dict,
                    file_name:str,

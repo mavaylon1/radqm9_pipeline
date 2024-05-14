@@ -52,26 +52,26 @@ atomic_energies_dict, all_data_configs = data.load_from_xyz(
 # H5 dataset multiprocess
 #########################
 
-# split collections.train into batches and save them to hdf5
-split_train = np.array_split(all_data_configs, args.num_process)
-drop_last = False
-if len(all_data_configs) % 2 == 1:
-    drop_last = True
+# # split collections.train into batches and save them to hdf5
+# split_train = np.array_split(all_data_configs, args.num_process)
+# drop_last = False
+# if len(all_data_configs) % 2 == 1:
+#     drop_last = True
 
-# Define Task for Multiprocessiing
-def multi_train_hdf5(process):
-    with h5py.File(args.directory + '/' + args.prefix + str(process)+".h5", "w") as f:
-        f.attrs["drop_last"] = drop_last
-        save_configurations_as_HDF5(split_train[process], process, f)
+# # Define Task for Multiprocessiing
+# def multi_train_hdf5(process):
+#     with h5py.File(args.directory + '/' + args.prefix + str(process)+".h5", "w") as f:
+#         f.attrs["drop_last"] = drop_last
+#         save_configurations_as_HDF5(split_train[process], process, f)
 
-processes = []
-for i in range(args.num_process):
-    p = mp.Process(target=multi_train_hdf5, args=[i])
-    p.start()
-    processes.append(p)
+# processes = []
+# for i in range(args.num_process):
+#     p = mp.Process(target=multi_train_hdf5, args=[i])
+#     p.start()
+#     processes.append(p)
 
-for i in processes:
-    i.join()
+# for i in processes:
+#     i.join()
     
 # ##############################
 # # Optional: Compute Statistics

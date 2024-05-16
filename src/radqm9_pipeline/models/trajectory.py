@@ -134,7 +134,6 @@ class TrajectoryDoc(PropertyDoc):
 
         for calculation in task.calcs_reversed:
             species = calculation.get("species", species)
-            
             this_geometries = calculation.get("geometries")
             this_energies = calculation.get("energy_trajectory")
             this_total_gradients = calculation.get("gradients")
@@ -173,14 +172,14 @@ class TrajectoryDoc(PropertyDoc):
 
             # Number of steps
             # All data in this (sub)-trajectory must have the same length
-            num_steps = len(geometries)
+            num_steps = len(this_geometries)
 
             this_dipole_moments = None
             this_resp_dipole_moments = None
 
             # electric dipoles
             if this_dipoles is not None:
-                if this_dipoles.get("dipole") is not None and len(this_dipoles["dipole"]) > 0:
+                if this_dipoles.get("dipole") is not None and len(this_dipoles['dipole']) > 0:
                     if (
                         isinstance(this_dipoles["dipole"][0], list)
                         and len(this_dipoles["dipole"]) == num_steps
@@ -203,7 +202,7 @@ class TrajectoryDoc(PropertyDoc):
             # Partial charges/spins
             if this_mulliken is not None:
                 if len(this_mulliken) == num_steps:
-                    if int(multiplicity) == 1:
+                    if int(mol.spin_multiplicity) == 1:
                         this_mulliken_partial_charges = this_mulliken
                     else:
                         # For open-shell molecules, need to split mulliken charges and spins
@@ -226,7 +225,7 @@ class TrajectoryDoc(PropertyDoc):
                     seclast = np.asarray(this_mulliken[-2])
                     if np.allclose(last, seclast):
                         
-                        if int(multiplicity) == 1:
+                        if int(mol.spin_multiplicity) == 1:
                             this_mulliken_partial_charges = this_mulliken[:-1]
                         
                         else:
